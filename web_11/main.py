@@ -1,19 +1,13 @@
-from sqlalchemy import create_engine   
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
 from pydantic import BaseModel
-from models import Contact
-import uvicorn
 from fastapi import FastAPI, HTTPException, Depends, Query
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
+from src.database.models import Contact
+from src.database.db import get_db
 from typing import List
+import uvicorn
 
-DATABASE_URL = "postgresql://user:****@localhost/fastandrest"
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-Base = declarative_base()
 
 
 class ContactResponse(BaseModel):
@@ -33,16 +27,8 @@ class ContactCreateUpdate(BaseModel):
     birthday:datetime
     additional_data: str = None
 
-
-
 app = FastAPI()
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 # CRUD операції
 @app.post("/contacts/", response_model=ContactResponse)
@@ -93,14 +79,21 @@ def search_contacts(query: str = Query(..., description="Search contacts by name
     ).all()
     return [ContactResponse(**contact.__dict__) for contact in contacts]
 
+from sqlalchemy import extract
+
 @app.get("/upcoming_birthdays/", response_model=List[ContactResponse])
 def upcoming_birthdays(db: Session = Depends(get_db)):
     today = datetime.now().date()
     next_week = today + timedelta(days=7)
+    
     contacts = db.query(Contact).filter(
-        (Contact.birthday >= today) & (Contact.birthday <= next_week)
+        extract('month', Contact.birthday) == today.month,
+        extract('day', Contact.birthday) >= today.day,
+        extract('day', Contact.birthday) <= next_week.day
     ).all()
+
     return [ContactResponse(**contact.__dict__) for contact in contacts]
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8000, reload=True)
